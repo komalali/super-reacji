@@ -1,9 +1,9 @@
 import * as aws from "@pulumi/aws";
 import { WebClient } from "@slack/web-api";
-import { checkIfUserIsApproved, getMessagePermalink } from "../slack";
+import { checkIfUserIsApproved, getMessagePermalink } from "./slack";
 
 export async function handleEvent(event: any) {
-    const tableName = process.env.TABLE_NAME || "";
+    const tableName = process.env.DEDUPE_TABLE_NAME || "";
     const tokenParamName = process.env.TOKEN_PARAM_NAME || "";
 
     if (!event.body) {
@@ -36,7 +36,7 @@ export async function handleEvent(event: any) {
         };
     }
 
-    const messageId = `${channel}-${timestamp}`;
+    const messageId = `${emoji}-${channel}-${timestamp}`;
     const dynamo = new aws.sdk.DynamoDB();
     try {
         await dynamo
@@ -91,7 +91,7 @@ export async function handleEvent(event: any) {
         );
         console.log("messageLinkResponse", messageLinkResponse);
 
-        if (messageLinkResponse.ok) {
+        if (messageLinkResponse.ok && emoji == "p-rocket") {
             const response = await web.chat.postMessage({
                 text: String(messageLinkResponse.permalink),
                 channel: channelId,
@@ -99,6 +99,27 @@ export async function handleEvent(event: any) {
             console.log("chatResponse", response);
         }
     }
+
+    return {
+        statusCode: 200,
+        body: "success",
+    };
+}
+
+export async function handleNewRule(event: any) {
+    const tableName = process.env.RULE_TABLE_NAME || "";
+    const tokenParamName = process.env.TOKEN_PARAM_NAME || "";
+
+    if (!event.body) {
+        return {
+            statusCode: 400,
+            body: "400 bad request",
+        };
+    }
+
+    let jsonBody = Buffer.from(event.body, "base64").toString("utf8");
+    const body = JSON.parse(jsonBody);
+    console.log("body", body);
 
     return {
         statusCode: 200,
