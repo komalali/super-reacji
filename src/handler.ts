@@ -3,9 +3,9 @@ import { WebClient } from "@slack/web-api";
 import { checkIfUserIsApproved, getMessagePermalink } from "../slack";
 import { tokenParamName } from "..";
 
-const tableName = process.env.TABLE_NAME || "";
-
 export async function handleEvent(event: any) {
+    const tableName = process.env.TABLE_NAME || "";
+
     if (!event.body) {
         return {
             statusCode: 400,
@@ -16,6 +16,13 @@ export async function handleEvent(event: any) {
     let jsonBody = Buffer.from(event.body, "base64").toString("utf8");
     const body = JSON.parse(jsonBody);
     console.log("body", body);
+
+    if (body.challenge) {
+        return {
+            statusCode: 200,
+            body: body.challenge,
+        };
+    }
 
     const {
         user,
@@ -41,6 +48,7 @@ export async function handleEvent(event: any) {
                 ConditionExpression: "attribute_not_exists(messageId)",
             })
             .promise();
+        console.log("First time seeing this message, adding to table.");
     } catch (err) {
         if (err.code != "ConditionalCheckFailedException") {
             await dynamo
@@ -53,6 +61,7 @@ export async function handleEvent(event: any) {
                 .promise();
             throw err;
         }
+        console.log("Message already exists, returning early.");
         return {
             statusCode: 200,
             body: "success",
