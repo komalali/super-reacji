@@ -8,7 +8,7 @@ const config = new pulumi.Config();
 const token = config.requireSecret("slack_token");
 
 const appName = "super-reacji";
-export const tokenParamName = `/${appName}/slack-token`;
+const tokenParamName = `/${appName}/slack-token`;
 
 function addSecretsManagerReadAccessPolicy(
     endpoint: string,
@@ -91,6 +91,7 @@ const api = new awsx.apigateway.API(
                         environment: {
                             variables: {
                                 TABLE_NAME: dedupeTable.name,
+                                TOKEN_PARAM_NAME: tokenParamName,
                             },
                         },
                         callback: handleEvent,

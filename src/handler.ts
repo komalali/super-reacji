@@ -1,10 +1,10 @@
 import * as aws from "@pulumi/aws";
 import { WebClient } from "@slack/web-api";
 import { checkIfUserIsApproved, getMessagePermalink } from "../slack";
-import { tokenParamName } from "..";
 
 export async function handleEvent(event: any) {
     const tableName = process.env.TABLE_NAME || "";
+    const tokenParamName = process.env.TOKEN_PARAM_NAME || "";
 
     if (!event.body) {
         return {
