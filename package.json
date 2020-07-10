@@ -1,0 +1,13 @@
+{
+    "name": "reacji-channeler-clone",
+    "devDependencies": {
+        "@types/node": "^10.0.0",
+        "prettier": "^2.0.5"
+    },
+    "dependencies": {
+        "@pulumi/aws": "^2.0.0",
+        "@pulumi/awsx": "^0.20.0",
+        "@pulumi/pulumi": "^2.0.0",
+        "@slack/web-api": "^5.10.0"
+    }
+}
