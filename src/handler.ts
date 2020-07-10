@@ -1,8 +1,6 @@
 import * as aws from "@pulumi/aws";
 import { WebClient } from "@slack/web-api";
 import { checkIfUserIsApproved, getMessagePermalink } from "../slack";
-import { metrics } from "@pulumi/awsx/acmpca";
-import time = metrics.time;
 
 export async function handleEvent(event: any) {
     const tableName = process.env.TABLE_NAME || "";
