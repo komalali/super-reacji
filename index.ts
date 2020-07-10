@@ -106,6 +106,7 @@ const api = new awsx.apigateway.API(
                         environment: {
                             variables: {
                                 DEDUPE_TABLE_NAME: dedupeTable.name,
+                                RULE_TABLE_NAME: ruleTable.name,
                                 TOKEN_PARAM_NAME: tokenParamName,
                             },
                         },

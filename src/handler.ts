@@ -3,7 +3,8 @@ import { WebClient } from "@slack/web-api";
 import { checkIfUserIsApproved, getMessagePermalink } from "./slack";
 
 export async function handleEvent(event: any) {
-    const tableName = process.env.DEDUPE_TABLE_NAME || "";
+    const dedupeTable = process.env.DEDUPE_TABLE_NAME || "";
+    const ruleTable = process.env.RULE_TABLE_NAME || "";
     const tokenParamName = process.env.TOKEN_PARAM_NAME || "";
 
     if (!event.body) {
@@ -41,7 +42,7 @@ export async function handleEvent(event: any) {
     try {
         await dynamo
             .putItem({
-                TableName: tableName,
+                TableName: dedupeTable,
                 Item: {
                     messageId: { S: messageId },
                     ttl: { N: String(Math.floor(Date.now() / 1000) + 600) },
@@ -54,7 +55,7 @@ export async function handleEvent(event: any) {
         if (err.code != "ConditionalCheckFailedException") {
             await dynamo
                 .deleteItem({
-                    TableName: tableName,
+                    TableName: dedupeTable,
                     Key: {
                         messageId: { S: messageId },
                     },
@@ -78,25 +79,46 @@ export async function handleEvent(event: any) {
         .promise();
     const slackSecret = ssmResult.Parameter?.Value;
 
-    const channelId = "C016TD2J9EH";
     const web = new WebClient(slackSecret);
-
     const userIsPulumian = await checkIfUserIsApproved(web, user);
 
     if (userIsPulumian) {
-        const messageLinkResponse = await getMessagePermalink(
-            web,
-            channel,
-            timestamp
-        );
-        console.log("messageLinkResponse", messageLinkResponse);
+        try {
+            const response = (await dynamo
+                .getItem({
+                    TableName: ruleTable,
+                    Key: {
+                        emojiName: {
+                            S: emoji,
+                        },
+                    },
+                })
+                .promise()) as any;
+            const channelId = response.Item.channelId.S;
 
-        if (messageLinkResponse.ok && emoji == "p-rocket") {
-            const response = await web.chat.postMessage({
-                text: String(messageLinkResponse.permalink),
-                channel: channelId,
-            });
-            console.log("chatResponse", response);
+            const messageLinkResponse = await getMessagePermalink(
+                web,
+                channel,
+                timestamp
+            );
+            console.log("messageLinkResponse", messageLinkResponse);
+            console.log(channelId);
+
+            if (messageLinkResponse.ok) {
+                const response = await web.chat.postMessage({
+                    text: String(messageLinkResponse.permalink),
+                    channel: channelId,
+                });
+                console.log("chatResponse", response);
+            }
+        } catch (err) {
+            if (err.code === "ResourceNotFoundException") {
+                console.log("No rule for this emoji, exiting.");
+                return {
+                    statusCode: 200,
+                    body: "success",
+                };
+            }
         }
     }
 
