@@ -1,6 +1,8 @@
 import * as aws from "@pulumi/aws";
 import { WebClient } from "@slack/web-api";
 import { checkIfUserIsApproved, getMessagePermalink } from "../slack";
+import { metrics } from "@pulumi/awsx/acmpca";
+import time = metrics.time;
 
 export async function handleEvent(event: any) {
     const tableName = process.env.TABLE_NAME || "";
@@ -36,13 +38,14 @@ export async function handleEvent(event: any) {
         };
     }
 
+    const messageId = `${channel}-${timestamp}`;
     const dynamo = new aws.sdk.DynamoDB();
     try {
         await dynamo
             .putItem({
                 TableName: tableName,
                 Item: {
-                    messageId: { S: timestamp },
+                    messageId: { S: messageId },
                     ttl: { N: String(Math.floor(Date.now() / 1000) + 600) },
                 },
                 ConditionExpression: "attribute_not_exists(messageId)",
@@ -55,7 +58,7 @@ export async function handleEvent(event: any) {
                 .deleteItem({
                     TableName: tableName,
                     Key: {
-                        messageId: { S: timestamp },
+                        messageId: { S: messageId },
                     },
                 })
                 .promise();
