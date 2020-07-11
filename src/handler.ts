@@ -1,11 +1,29 @@
+import { parse } from "querystring";
 import * as aws from "@pulumi/aws";
+import {
+    checkIfUserIsApproved,
+    getChannelId,
+    getMessagePermalink,
+    getSlackClient,
+    parseCommand,
+    SlashCommandInput,
+} from "./slack";
 import { WebClient } from "@slack/web-api";
-import { checkIfUserIsApproved, getMessagePermalink } from "./slack";
 
-export async function handleEvent(event: any) {
+function getEnvVars() {
     const dedupeTable = process.env.DEDUPE_TABLE_NAME || "";
     const ruleTable = process.env.RULE_TABLE_NAME || "";
     const tokenParamName = process.env.TOKEN_PARAM_NAME || "";
+
+    return {
+        dedupeTable,
+        ruleTable,
+        tokenParamName,
+    };
+}
+
+export async function handleEvent(event: any) {
+    const { dedupeTable, ruleTable, tokenParamName } = getEnvVars();
 
     if (!event.body) {
         return {
@@ -70,16 +88,7 @@ export async function handleEvent(event: any) {
         };
     }
 
-    const ssm = new aws.sdk.SSM();
-    const ssmResult = await ssm
-        .getParameter({
-            Name: tokenParamName,
-            WithDecryption: true,
-        })
-        .promise();
-    const slackSecret = ssmResult.Parameter?.Value;
-
-    const web = new WebClient(slackSecret);
+    const web = await getSlackClient(tokenParamName);
     const userIsPulumian = await checkIfUserIsApproved(web, user);
 
     if (userIsPulumian) {
@@ -129,8 +138,7 @@ export async function handleEvent(event: any) {
 }
 
 export async function handleNewRule(event: any) {
-    const tableName = process.env.RULE_TABLE_NAME || "";
-    const tokenParamName = process.env.TOKEN_PARAM_NAME || "";
+    const { ruleTable, tokenParamName } = getEnvVars();
 
     if (!event.body) {
         return {
@@ -139,12 +147,61 @@ export async function handleNewRule(event: any) {
         };
     }
 
-    let jsonBody = Buffer.from(event.body, "base64").toString("utf8");
-    const body = JSON.parse(jsonBody);
+    const body = parse(event.body) as SlashCommandInput;
+    Object.entries(body).forEach(([key, value]) => {
+        body[key] = String(value).replace("\n", "");
+    });
     console.log("body", body);
 
-    return {
-        statusCode: 200,
-        body: "success",
-    };
+    const { emoji, channelName } = parseCommand(body);
+    const web = await getSlackClient(tokenParamName);
+
+    return processNewRuleRequest(emoji, channelName, ruleTable, web);
+}
+
+async function processNewRuleRequest(
+    emoji: string,
+    channelName: string,
+    tableName: string,
+    slackClient: WebClient
+) {
+    let channelId;
+    try {
+        channelId = await getChannelId(slackClient, channelName);
+    } catch (err) {
+        return {
+            statusCode: 404,
+            body: "channel not found",
+        };
+    }
+
+    const dynamo = new aws.sdk.DynamoDB();
+    try {
+        await dynamo
+            .putItem({
+                TableName: tableName,
+                Item: {
+                    emojiName: { S: emoji },
+                    channelId: { S: channelId },
+                },
+                ConditionExpression: "attribute_not_exists(emojiName)",
+            })
+            .promise();
+        const message = "Adding new rule to table.";
+        console.log(message);
+        return {
+            statusCode: 200,
+            body: message,
+        };
+    } catch (err) {
+        if (err.code != "ConditionalCheckFailedException") {
+            throw err;
+        }
+        const message = `There is an existing rule for the :${emoji}: emoji, try again.`;
+        console.log(message);
+        return {
+            statusCode: 400,
+            body: message,
+        };
+    }
 }
