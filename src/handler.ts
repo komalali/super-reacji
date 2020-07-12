@@ -13,17 +13,29 @@ import { WebClient } from "@slack/web-api";
 function getEnvVars() {
     const dedupeTable = process.env.DEDUPE_TABLE_NAME || "";
     const ruleTable = process.env.RULE_TABLE_NAME || "";
-    const tokenParamName = process.env.TOKEN_PARAM_NAME || "";
+    const tokenParamName = process.env.TOKEN_PARAM || "";
+    const allowListParamName = process.env.ALLOW_LIST_PARAM || "";
 
     return {
         dedupeTable,
         ruleTable,
         tokenParamName,
+        allowListParamName,
     };
 }
 
-export async function handleEvent(event: any) {
-    const { dedupeTable, ruleTable, tokenParamName } = getEnvVars();
+interface ApiProxyEvent {
+    body: string;
+    isBase64Encoded: boolean;
+}
+
+export async function handleEvent(event: ApiProxyEvent) {
+    const {
+        dedupeTable,
+        ruleTable,
+        tokenParamName,
+        allowListParamName,
+    } = getEnvVars();
 
     if (!event.body) {
         return {
@@ -89,9 +101,13 @@ export async function handleEvent(event: any) {
     }
 
     const web = await getSlackClient(tokenParamName);
-    const userIsPulumian = await checkIfUserIsApproved(web, user);
+    const userIsApproved = await checkIfUserIsApproved(
+        web,
+        user,
+        allowListParamName
+    );
 
-    if (userIsPulumian) {
+    if (userIsApproved) {
         try {
             const response = (await dynamo
                 .getItem({
@@ -137,7 +153,7 @@ export async function handleEvent(event: any) {
     };
 }
 
-export async function handleNewRule(event: any) {
+export async function handleNewRule(event: ApiProxyEvent) {
     const { ruleTable, tokenParamName } = getEnvVars();
 
     if (!event.body) {
@@ -169,9 +185,10 @@ async function processNewRuleRequest(
     try {
         channelId = await getChannelId(slackClient, channelName);
     } catch (err) {
+        console.log(err);
         return {
             statusCode: 404,
-            body: "channel not found",
+            body: err,
         };
     }
 

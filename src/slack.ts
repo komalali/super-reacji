@@ -1,6 +1,6 @@
 import { WebClient, WebAPICallResult } from "@slack/web-api";
 import { ParsedUrlQuery } from "querystring";
-import * as aws from "@pulumi/aws";
+import { getSSMParam } from "./aws";
 
 interface UserInfoResult extends WebAPICallResult {
     user: {
@@ -22,12 +22,31 @@ export async function getUser(client: WebClient, userId: string) {
     return client.users.info({ user: userId });
 }
 
-export async function checkIfUserIsApproved(client: WebClient, userId: string) {
+async function getAllowList(allowListParam: string) {
+    // TODO: fetch allowListParam and parse the output.
+    const domains = ["pulumi.com"];
+    const emails = ["komalsali@gmail.com"];
+    return {
+        domains,
+        emails,
+    };
+}
+
+export async function checkIfUserIsApproved(
+    client: WebClient,
+    userId: string,
+    allowListParamName: string
+) {
     const userInfo = (await getUser(client, userId)) as UserInfoResult;
     if (userInfo.ok) {
         const { email } = userInfo.user.profile;
         const emailDomain = email.split("@")[1];
-        return emailDomain === "pulumi.com" || email === "komalsali@gmail.com";
+
+        const allowList = await getAllowList(allowListParamName);
+        const domainIsAllowed = allowList.domains.includes(emailDomain);
+        const emailIsAllowed = allowList.emails.includes(email);
+
+        return domainIsAllowed || emailIsAllowed;
     }
     return false;
 }
@@ -59,14 +78,8 @@ export function parseCommand(input: SlashCommandInput) {
 }
 
 export async function getSlackClient(tokenName: string) {
-    const ssm = new aws.sdk.SSM();
-    const ssmResult = await ssm
-        .getParameter({
-            Name: tokenName,
-            WithDecryption: true,
-        })
-        .promise();
-    const slackSecret = ssmResult.Parameter?.Value;
+    const slackSecret = await getSSMParam(tokenName, true);
+    if (!slackSecret) throw new Error("no slack token");
 
     return new WebClient(slackSecret);
 }
@@ -75,6 +88,8 @@ export async function getChannelId(client: WebClient, channelName: string) {
     const response = (await client.conversations.list({
         exclude_archived: true,
     })) as any;
+    if (!response.ok) throw new Error(response.error);
+
     const targetChannel = response.channels.filter(
         (channel: any) => channel.name === channelName
     );

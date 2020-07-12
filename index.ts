@@ -5,10 +5,13 @@ import * as awsx from "@pulumi/awsx";
 import { handleEvent, handleNewRule } from "./src/handler";
 
 const config = new pulumi.Config();
-const token = config.requireSecret("slack_token");
+const token = config.requireSecret("slackToken");
+// TODO: Handle allowList being passed in as an array.
+const allowList = config.get("allowList") || "";
 
 const appName = "super-reacji";
-const tokenParamName = `/${appName}/slack-token`;
+const tokenParamName = `/${appName}/slackToken`;
+const allowListParamName = `/${appName}/allowList`;
 
 function addSecretsManagerReadAccessPolicy(
     endpoint: string,
@@ -66,6 +69,14 @@ const slackTokenSecretParam = new aws.ssm.Parameter(`${appName}-slack-token`, {
     name: tokenParamName,
 });
 
+// TODO: ensure allowList is being passed in as StringList.
+const allowListParam = new aws.ssm.Parameter(`${appName}-allow-list`, {
+    type: aws.ssm.StringListParameter,
+    description: "List of allowed emails or domains",
+    value: allowList,
+    name: allowListParamName,
+});
+
 const dedupeTable = new aws.dynamodb.Table(`${appName}-deduplication-table`, {
     hashKey: "messageId",
     ttl: {
@@ -107,7 +118,8 @@ const api = new awsx.apigateway.API(
                             variables: {
                                 DEDUPE_TABLE_NAME: dedupeTable.name,
                                 RULE_TABLE_NAME: ruleTable.name,
-                                TOKEN_PARAM_NAME: tokenParamName,
+                                TOKEN_PARAM: tokenParamName,
+                                ALLOW_LIST_PARAM: allowListParamName,
                             },
                         },
                         callback: handleEvent,
@@ -133,7 +145,14 @@ const api = new awsx.apigateway.API(
             },
         ],
     },
-    { dependsOn: [slackTokenSecretParam, dedupeTable, ruleTable] }
+    {
+        dependsOn: [
+            allowListParam,
+            slackTokenSecretParam,
+            dedupeTable,
+            ruleTable,
+        ],
+    }
 );
 
 addSecretsManagerReadAccessPolicy("/ingest", "POST");
