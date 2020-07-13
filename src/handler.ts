@@ -100,12 +100,23 @@ export async function handleEvent(event: ApiProxyEvent) {
         };
     }
 
-    const web = await getSlackClient(tokenParamName);
-    const userIsApproved = await checkIfUserIsApproved(
-        web,
-        user,
-        allowListParamName
-    );
+    let web: WebClient;
+    let userIsApproved: boolean;
+
+    try {
+        web = await getSlackClient(tokenParamName);
+        userIsApproved = await checkIfUserIsApproved(
+            web,
+            user,
+            allowListParamName
+        );
+    } catch (err) {
+        console.log(err);
+        return {
+            statusCode: 500,
+            body: "something went wrong",
+        };
+    }
 
     if (userIsApproved) {
         try {
@@ -127,7 +138,6 @@ export async function handleEvent(event: ApiProxyEvent) {
                 timestamp
             );
             console.log("messageLinkResponse", messageLinkResponse);
-            console.log(channelId);
 
             if (messageLinkResponse.ok) {
                 const response = await web.chat.postMessage({
@@ -204,7 +214,7 @@ async function processNewRuleRequest(
                 ConditionExpression: "attribute_not_exists(emojiName)",
             })
             .promise();
-        const message = "Adding new rule to table.";
+        const message = `Adding new rule to table: {emoji: ${emoji}, channel: ${channelName}}.`;
         console.log(message);
         return {
             statusCode: 200,

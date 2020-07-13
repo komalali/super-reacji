@@ -23,9 +23,29 @@ export async function getUser(client: WebClient, userId: string) {
 }
 
 async function getAllowList(allowListParam: string) {
-    // TODO: fetch allowListParam and parse the output.
-    const domains = ["pulumi.com"];
-    const emails = ["komalsali@gmail.com"];
+    const allowListString = await getSSMParam(allowListParam, false);
+    const domains: string[] = [];
+    const emails: string[] = [];
+
+    const categorizeItem = (item: string) => {
+        if (item.includes("@")) {
+            // This is an email address
+            emails.push(item);
+        } else {
+            // Treat it as a domain
+            domains.push(item);
+        }
+    };
+
+    if (allowListString) {
+        if (allowListString.includes(",")) {
+            const allowList = allowListString.split(",");
+            allowList.forEach((item) => categorizeItem(item));
+        } else {
+            categorizeItem(allowListString);
+        }
+    }
+
     return {
         domains,
         emails,
@@ -37,18 +57,27 @@ export async function checkIfUserIsApproved(
     userId: string,
     allowListParamName: string
 ) {
-    const userInfo = (await getUser(client, userId)) as UserInfoResult;
-    if (userInfo.ok) {
-        const { email } = userInfo.user.profile;
-        const emailDomain = email.split("@")[1];
-
-        const allowList = await getAllowList(allowListParamName);
-        const domainIsAllowed = allowList.domains.includes(emailDomain);
-        const emailIsAllowed = allowList.emails.includes(email);
-
-        return domainIsAllowed || emailIsAllowed;
+    const allowList = await getAllowList(allowListParamName);
+    if (!allowList.domains && !allowList.emails) {
+        // If the allowList is empty, all users are allowed.
+        console.log("All users are allowed, proceeding");
+        return true;
     }
-    return false;
+
+    const userInfo = (await getUser(client, userId)) as UserInfoResult;
+    if (!userInfo.ok) {
+        throw new Error(`failed to get user info. Error: ${userInfo.error}`);
+    }
+    const { email } = userInfo.user.profile;
+    const emailDomain = email.split("@")[1];
+
+    const domainIsAllowed = allowList.domains.includes(emailDomain);
+    const emailIsAllowed = allowList.emails.includes(email);
+
+    const approvedUser = domainIsAllowed || emailIsAllowed;
+    if (!approvedUser) console.log("User not in allowList, ignoring.");
+
+    return approvedUser;
 }
 
 export async function getMessagePermalink(
